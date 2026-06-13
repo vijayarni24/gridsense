@@ -9,4 +9,12 @@ venv/
 .idea/
 .vscode/
 *.pdf
-data/raw/
+data/
+.env.local
+# uv / build
+.venv/
+dist/
+*.egg-info/
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
