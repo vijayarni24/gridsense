@@ -1,4 +1,4 @@
-"""Typer CLI: ``gridsense fetch generation --region CAISO --start ... --end ...``.
+"""Typer CLI: ``gridsense fetch generation --region CISO --start ... --end ...``.
 
 Typer is synchronous; the async client is bridged with a single ``asyncio.run``
 call at this boundary so async never leaks into the UI layer.
@@ -17,15 +17,16 @@ import typer
 from dotenv import load_dotenv
 
 from gridsense.eia.client import EIAClient
+from gridsense.eia.regions import Region
 
 app = typer.Typer(add_completion=False, help="GridSense data CLI")
 fetch_app = typer.Typer(help="Fetch data from upstream sources")
 app.add_typer(fetch_app, name="fetch")
 
 
-async def _fetch(api_key: str, region: str, start: datetime, end: datetime) -> pd.DataFrame:
+async def _fetch(api_key: str, region: Region, start: datetime, end: datetime) -> pd.DataFrame:
     async with EIAClient(api_key) as client:
-        return await client.fetch_generation(region, start.date(), end.date())
+        return await client.fetch_generation(region.value, start.date(), end.date())
 
 
 def _print_summary(df: pd.DataFrame, region: str, out_path: Path) -> None:
@@ -45,7 +46,7 @@ def _print_summary(df: pd.DataFrame, region: str, out_path: Path) -> None:
 
 @fetch_app.command("generation")
 def fetch_generation(
-    region: Annotated[str, typer.Option("--region", help="ISO/RTO respondent code, e.g. CAISO")],
+    region: Annotated[Region, typer.Option("--region", help="ISO/RTO respondent code, e.g. CISO")],
     start: Annotated[datetime, typer.Option("--start", formats=["%Y-%m-%d"], help="YYYY-MM-DD")],
     end: Annotated[
         datetime,

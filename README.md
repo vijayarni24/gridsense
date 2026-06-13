@@ -35,13 +35,29 @@ Data agent    Docs agent    Forecast agent  Synthesis
 
 Deployed on Cloud Run, infrastructure as Terraform, observability via Cloud Trace + structured logging, evaluated against a golden set of analyst questions.
 
+## Quickstart
+
+```bash
+# Requires uv (https://docs.astral.sh/uv/) and a free EIA API key:
+# https://www.eia.gov/opendata/register.php
+uv sync
+cp .env.example .env          # paste your EIA_API_KEY
+
+# Fetch a week of hourly generation-by-fuel for the California ISO.
+# Note: EIA uses short respondent codes — CAISO is "CISO", ERCOT is "ERCO", etc.
+uv run gridsense fetch generation --region CISO --start 2025-06-01 --end 2025-06-07
+```
+
+Prints a fuel-mix summary and writes `data/raw/generation_CISO_2025-06-01_2025-06-07.parquet`.
+Supported regions: `CISO`, `ERCO`, `PJM`, `NYIS`, `ISNE`, `MISO`, `SWPP`.
+
 ## Built during the 30-day sprint
 
 This repo is being built during a 30-day full-time sprint (Data Analyst → Applied AI / Forward Deployed Engineer). Components ship across these days:
 
 | Day | Component | Status |
 |---|---|---|
-| 2 | EIA ingestion CLI | ☐ |
+| 2 | EIA ingestion CLI | ☑ |
 | 3 | LLM + single tool script (EIA generation tool) | ☐ |
 | 4 | Hand-rolled ReAct agent + ADK port, 2 tools | ☐ |
 | 5 | RAG bot over FERC filings, with citations | ☐ |
@@ -73,7 +89,7 @@ This repo is being built during a 30-day full-time sprint (Data Analyst → Appl
 
 ## Status
 
-🚧 Day 1 of 30 — repo scaffolded, sprint in motion. Components ship as the calendar advances.
+🚧 Day 2 of 30 — EIA generation ingestion CLI live (verified against CISO). Components ship as the calendar advances.
 
 ## License
 
