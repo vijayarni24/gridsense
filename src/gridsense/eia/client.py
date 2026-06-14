@@ -14,9 +14,11 @@ from __future__ import annotations
 import asyncio
 from datetime import date
 from types import TracebackType
+from typing import TypeVar
 
 import httpx
 import pandas as pd
+from pydantic import BaseModel
 from tenacity import (
     RetryCallState,
     retry,
@@ -25,15 +27,26 @@ from tenacity import (
     wait_exponential_jitter,
 )
 
-from gridsense.eia.models import EIAResponse, GenerationRecord
+from gridsense.eia.models import (
+    EIAResponse,
+    GenerationRecord,
+    RegionDataRecord,
+    RegionDataResponse,
+)
 
 EIA_BASE_URL = "https://api.eia.gov/v2"
 FUEL_TYPE_PATH = "/electricity/rto/fuel-type-data/data"
+REGION_DATA_PATH = "/electricity/rto/region-data/data"
+REGION_TYPES = ("D", "NG", "TI")  # demand, net generation, total interchange
 PAGE_LIMIT = 5000  # EIA hard cap on rows per request
 MAX_ATTEMPTS = 5
 
+ResponseT = TypeVar("ResponseT", bound=BaseModel)
+
 _CATEGORICAL_COLS = ("respondent", "respondent_name", "fueltype", "type_name", "value_units")
 _FRAME_COLS = ("period", *_CATEGORICAL_COLS, "value")
+_REGION_CATEGORICAL_COLS = ("respondent", "respondent_name", "type", "type_name", "value_units")
+_REGION_FRAME_COLS = ("period", *_REGION_CATEGORICAL_COLS, "value")
 
 
 def _is_retryable(exc: BaseException) -> bool:
@@ -85,9 +98,15 @@ class EIAClient:
         await self._client.aclose()
 
     def _build_params(
-        self, region: str, start: date, end: date, *, offset: int
-    ) -> dict[str, str | int]:
-        return {
+        self,
+        region: str,
+        start: date,
+        end: date,
+        *,
+        offset: int,
+        facet_types: tuple[str, ...] | None = None,
+    ) -> dict[str, str | int | list[str]]:
+        params: dict[str, str | int | list[str]] = {
             "api_key": self._api_key,
             "frequency": "hourly",
             "data[0]": "value",
@@ -99,6 +118,9 @@ class EIAClient:
             "offset": offset,
             "length": PAGE_LIMIT,
         }
+        if facet_types is not None:
+            params["facets[type][]"] = list(facet_types)
+        return params
 
     @retry(
         retry=retry_if_exception(_is_retryable),
@@ -106,27 +128,71 @@ class EIAClient:
         wait=_wait_strategy,
         reraise=True,
     )
-    async def _get_page(self, params: dict[str, str | int]) -> EIAResponse:
+    async def _get_page(
+        self,
+        path: str,
+        params: dict[str, str | int | list[str]],
+        response_model: type[ResponseT],
+    ) -> ResponseT:
         async with self._sem:
-            resp = await self._client.get(FUEL_TYPE_PATH, params=params)
+            resp = await self._client.get(path, params=params)
         resp.raise_for_status()
         payload = resp.json()
-        return EIAResponse.model_validate(payload["response"])
+        return response_model.model_validate(payload["response"])
 
     async def fetch_generation(self, region: str, start: date, end: date) -> pd.DataFrame:
         """Fetch hourly net generation by fuel type for ``region`` over [start, end]."""
-        first = await self._get_page(self._build_params(region, start, end, offset=0))
+        first = await self._get_page(
+            FUEL_TYPE_PATH, self._build_params(region, start, end, offset=0), EIAResponse
+        )
         records: list[GenerationRecord] = list(first.data)
 
         if first.total > PAGE_LIMIT:
             offsets = range(PAGE_LIMIT, first.total, PAGE_LIMIT)
             pages = await asyncio.gather(
-                *(self._get_page(self._build_params(region, start, end, offset=o)) for o in offsets)
+                *(
+                    self._get_page(
+                        FUEL_TYPE_PATH,
+                        self._build_params(region, start, end, offset=o),
+                        EIAResponse,
+                    )
+                    for o in offsets
+                )
             )
             for page in pages:
                 records.extend(page.data)
 
         return self._to_dataframe(records)
+
+    async def fetch_region_data(self, region: str, start: date, end: date) -> pd.DataFrame:
+        """Fetch hourly demand (D), net generation (NG), and total interchange (TI).
+
+        Total interchange follows the EIA sign convention: positive = net exports,
+        negative = net imports.
+        """
+        first = await self._get_page(
+            REGION_DATA_PATH,
+            self._build_params(region, start, end, offset=0, facet_types=REGION_TYPES),
+            RegionDataResponse,
+        )
+        records: list[RegionDataRecord] = list(first.data)
+
+        if first.total > PAGE_LIMIT:
+            offsets = range(PAGE_LIMIT, first.total, PAGE_LIMIT)
+            pages = await asyncio.gather(
+                *(
+                    self._get_page(
+                        REGION_DATA_PATH,
+                        self._build_params(region, start, end, offset=o, facet_types=REGION_TYPES),
+                        RegionDataResponse,
+                    )
+                    for o in offsets
+                )
+            )
+            for page in pages:
+                records.extend(page.data)
+
+        return self._region_to_dataframe(records)
 
     @staticmethod
     def _to_dataframe(records: list[GenerationRecord]) -> pd.DataFrame:
@@ -138,3 +204,14 @@ class EIAClient:
         for col in _CATEGORICAL_COLS:
             df[col] = df[col].astype("category")
         return df.sort_values(["period", "fueltype"]).reset_index(drop=True)
+
+    @staticmethod
+    def _region_to_dataframe(records: list[RegionDataRecord]) -> pd.DataFrame:
+        if not records:
+            return pd.DataFrame(columns=list(_REGION_FRAME_COLS))
+        df = pd.DataFrame([r.model_dump() for r in records], columns=list(_REGION_FRAME_COLS))
+        df["period"] = pd.to_datetime(df["period"])
+        df["value"] = pd.to_numeric(df["value"], errors="coerce")
+        for col in _REGION_CATEGORICAL_COLS:
+            df[col] = df[col].astype("category")
+        return df.sort_values(["period", "type"]).reset_index(drop=True)
