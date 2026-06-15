@@ -107,9 +107,9 @@ async def _fetch_region(region: str, start: date, end: date) -> pd.DataFrame:
         return await client.fetch_region_data(region, start, end)
 
 
-def run_get_generation(args: dict[str, Any]) -> dict[str, Any]:
-    region, start, end = _parse_args(args)
-    df = asyncio.run(_fetch_generation(region, start, end))
+async def summarize_generation(region: str, start: date, end: date) -> dict[str, Any]:
+    """Async core: fetch generation and summarize MWh by fuel type."""
+    df = await _fetch_generation(region, start, end)
     if df.empty:
         return {"region": region, "rows": 0, "note": "no data for this range"}
     by_fuel = df.groupby("type_name", observed=True)["value"].sum().sort_values(ascending=False)
@@ -120,9 +120,9 @@ def run_get_generation(args: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def run_get_demand_and_interchange(args: dict[str, Any]) -> dict[str, Any]:
-    region, start, end = _parse_args(args)
-    df = asyncio.run(_fetch_region(region, start, end))
+async def summarize_demand_and_interchange(region: str, start: date, end: date) -> dict[str, Any]:
+    """Async core: fetch region data and summarize demand / net gen / interchange."""
+    df = await _fetch_region(region, start, end)
     if df.empty:
         return {"region": region, "rows": 0, "note": "no data for this range"}
     by_type = df.groupby("type", observed=True)["value"].sum()
@@ -134,6 +134,18 @@ def run_get_demand_and_interchange(args: dict[str, Any]) -> dict[str, Any]:
         "totals": totals,
         "convention": "total_interchange_mwh > 0 means net exports; < 0 means net imports",
     }
+
+
+def run_get_generation(args: dict[str, Any]) -> dict[str, Any]:
+    """Sync wrapper for the manual loop (no running event loop here)."""
+    region, start, end = _parse_args(args)
+    return asyncio.run(summarize_generation(region, start, end))
+
+
+def run_get_demand_and_interchange(args: dict[str, Any]) -> dict[str, Any]:
+    """Sync wrapper for the manual loop (no running event loop here)."""
+    region, start, end = _parse_args(args)
+    return asyncio.run(summarize_demand_and_interchange(region, start, end))
 
 
 DISPATCH = {
