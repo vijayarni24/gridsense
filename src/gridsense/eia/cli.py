@@ -83,5 +83,33 @@ def fetch_generation(
     _print_summary(df, region, out_path)
 
 
+@app.command("ingest")
+def ingest(
+    directory: Annotated[
+        Path, typer.Argument(help="Directory of PDFs to ingest")
+    ] = Path("data/docs"),
+) -> None:
+    """Ingest PDFs into the local RAG vector store (Chroma)."""
+    # Lazy import so chromadb/pypdf/genai aren't loaded for `fetch`.
+    from gridsense.rag.ingest import CHROMA_PATH, ingest_directory
+
+    n_chunks, n_pdfs = ingest_directory(directory)
+    typer.secho(
+        f"\n✓ Embedded {n_chunks} chunks from {n_pdfs} PDFs into {CHROMA_PATH}",
+        fg=typer.colors.GREEN,
+        bold=True,
+    )
+
+
+@app.command("ask")
+def ask(
+    question: Annotated[str, typer.Argument(help="Question to answer from ingested docs")],
+) -> None:
+    """Answer a question from the ingested documents, with citations."""
+    from gridsense.rag.answer import answer as answer_question
+
+    typer.echo(answer_question(question))
+
+
 if __name__ == "__main__":
     app()

@@ -18,6 +18,7 @@ import asyncio
 import os
 import sys
 from datetime import date
+from typing import Any, cast
 
 import pandas as pd
 from dotenv import load_dotenv
@@ -112,7 +113,9 @@ def main() -> None:
 
     # Turn 1: send the question, let Gemini decide whether to call the tool.
     user_content = types.Content(role="user", parts=[types.Part(text=question)])
-    first = client.models.generate_content(model=MODEL, contents=[user_content], config=config)
+    first = client.models.generate_content(
+        model=MODEL, contents=cast(Any, [user_content]), config=config
+    )
 
     calls = first.function_calls
     if not calls:
@@ -139,7 +142,7 @@ def main() -> None:
     )
     final = client.models.generate_content(
         model=MODEL,
-        contents=[user_content, model_content, tool_content],
+        contents=cast(Any, [user_content, model_content, tool_content]),
         config=config,
     )
     print(final.text)

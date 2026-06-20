@@ -24,7 +24,7 @@ import asyncio
 import os
 import sys
 from datetime import date
-from typing import Any
+from typing import Any, cast
 
 import pandas as pd
 from dotenv import load_dotenv
@@ -175,7 +175,9 @@ def main() -> None:
     contents: list[types.Content] = [types.Content(role="user", parts=[types.Part(text=question)])]
 
     for iteration in range(1, MAX_ITERATIONS + 1):
-        response = client.models.generate_content(model=MODEL, contents=contents, config=config)
+        response = client.models.generate_content(
+            model=MODEL, contents=cast(Any, contents), config=config
+        )
 
         calls = response.function_calls
         if not calls:
